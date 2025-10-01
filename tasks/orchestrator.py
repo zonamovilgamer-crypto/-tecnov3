@@ -275,13 +275,20 @@ class HiveOrchestrator:
 
 @app.task(bind=True, queue='default')
 @log_execution(logger_name='celery')
-def start_scraping_pipeline(self, youtube_queries: List[str], news_sources_config: List[str]):
+def start_scraping_pipeline(self):
     """
-    Main pipeline task to start the scraping process and chain subsequent tasks.
-    This task is intended to be triggered by Celery Beat.
-    Now uses HiveOrchestrator to manage the pipeline.
+    Tarea principal que inicia el pipeline de scraping.
+    EJECUCIÓN AUTOMÁTICA: Celery Beat llama esta tarea cada 1 hora.
     """
-    logger.info("Celery task: Starting the full scraping and content generation pipeline via HiveOrchestrator.")
+    # ✅ Parámetros por defecto para ejecución automática
+    youtube_queries = ["tech news", "artificial intelligence", "programming"]
+    news_sources_config = [
+        "https://news.google.com",
+        "https://techcrunch.com",
+        "https://www.theverge.com"
+    ]
+
+    logger.info("🚀 [AUTO] Celery Beat iniciando pipeline automático (cada 1 hora)")
     orchestrator = HiveOrchestrator()
     orchestrator.schedule_content_generation(youtube_queries, news_sources_config)
-    logger.info("Celery task: HiveOrchestrator pipeline scheduled.")
+    logger.info("✅ [AUTO] Pipeline programado - Resultados en Supabase en minutos")

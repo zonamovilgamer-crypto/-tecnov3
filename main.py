@@ -18,7 +18,7 @@ def check_redis_connection(host='localhost', port=6379, timeout=1):
     """Verifica si Redis está accesible"""
     try:
         # Use Redis Cloud URL for connection
-        r = redis.Redis.from_url('redis://default:u9a41u5CkQMGnDlFqjqftE49xZMM7cZd@redis-19201.c8.us-east-1-3.ec2.redns.redis-cloud.com:19201')
+        r = redis.Redis.from_url('redis://default:59UGKSDD5Zh6SyBBpnEZXdu72Z64gd4U@redis-12790.c325.us-east-1-4.ec2.redns.redis-cloud.com:12790')
         r.ping()
         return True
     except Exception as e:
@@ -109,33 +109,110 @@ class CeleryManager:
         # Verificar
         self._wait_for_workers()
 
-    def _wait_for_workers(self, timeout=90):
-        """Verifica que workers estén ACTIVOS antes de continuar"""
-        logger.info("⏳ Waiting for workers to be ready...")
+    def _wait_for_workers(self, timeout=120):
+        """Verificación robusta con diagnóstico completo"""
+        logger.info("🔍 Iniciando diagnóstico completo de workers...")
         start_time = time.time()
 
-        while time.time() - start_time < timeout:
+        for attempt in range(1, 13):  # 12 intentos (2 minutos total)
+            elapsed = time.time() - start_time
+            logger.info(f"📊 Intento {attempt}/12 - Tiempo transcurrido: {elapsed:.1f}s")
+
             try:
+                # PRUEBA 1: Comando ping básico
                 result = subprocess.run(
-                    [sys.executable, "-m", "celery", "-A", "core.celery_config",
-                     "inspect", "active"],
-                    capture_output=True,
-                    text=True,
-                    timeout=5
+                    [sys.executable, "-m", "celery", "-A", "core.celery_config", "inspect", "ping"],
+                    capture_output=True, text=True, timeout=15
                 )
 
-                if result.returncode == 0 and "Error" not in result.stdout:
-                    logger.info("✅ Celery workers are healthy and active!")
+                logger.info(f"   Status: {result.returncode} | Output: {result.stdout.strip()}")
+
+                if result.returncode == 0 and "pong" in result.stdout.lower():
+                    logger.info("✅ WORKERS VERIFICADOS: Respondiendo correctamente")
                     return True
 
+                # PRUEBA 2: Stats detallados si ping falla
+                if result.returncode != 0:
+                    logger.warning(f"   Ping falló, intentando stats...")
+                    stats_result = subprocess.run(
+                        [sys.executable, "-m", "celery", "-A", "core.celery_config", "inspect", "stats"],
+                        capture_output=True, text=True, timeout=15
+                    )
+                    logger.info(f"   Stats status: {stats_result.returncode}")
+
             except subprocess.TimeoutExpired:
-                logger.warning("Worker check timed out, retrying...")
+                logger.warning(f"   ⏱️ Timeout en verificación")
             except Exception as e:
-                logger.debug(f"Worker check failed: {e}")
+                logger.warning(f"   ❌ Error en verificación: {str(e)}")
 
-            time.sleep(2)
+            # Diagnóstico intermedio cada 3 intentos
+            if attempt % 3 == 0:
+                self._intermediate_diagnosis(attempt)
 
-        raise RuntimeError("❌ Celery workers failed to start within timeout!")
+            time.sleep(10)  # 10 segundos entre intentos
+
+        # DIAGNÓSTICO FINAL COMPLETO
+        logger.error("❌ DIAGNÓSTICO FINAL - Workers no responden después de 2 minutos")
+        self._comprehensive_diagnosis()
+        raise RuntimeError("Celery workers failed comprehensive health check")
+
+    def _intermediate_diagnosis(self, attempt):
+        """Diagnóstico intermedio cada 3 intentos"""
+        logger.info(f"   🩺 Diagnóstico intermedio (intento {attempt})...")
+
+        # Verificar procesos en sistema
+        try:
+            if sys.platform == "win32":
+                proc_result = subprocess.run(["tasklist"], capture_output=True, text=True)
+            else:
+                proc_result = subprocess.run(["ps", "aux"], capture_output=True, text=True)
+
+            celery_processes = [line for line in proc_result.stdout.split('\n') if 'celery' in line.lower()]
+            logger.info(f"   📋 Procesos Celery encontrados: {len(celery_processes)}")
+            for proc in celery_processes[:2]:  # Mostrar primeros 2
+                logger.info(f"     → {proc.strip()}")
+
+        except Exception as e:
+            logger.warning(f"   ⚠️ No se pudo verificar procesos: {e}")
+
+    def _comprehensive_diagnosis(self):
+        """Diagnóstico final exhaustivo"""
+        logger.error("🩺 DIAGNÓSTICO EXHAUSTIVO INICIADO:")
+
+        # 1. Verificar conexión Redis
+        logger.error("   1. 🔗 Verificando conexión Redis...")
+        try:
+            import redis
+            r = redis.Redis.from_url('redis://default:59UGKSDD5Zh6SyBBpnEZXdu72Z64gd4U@redis-12790.c325.us-east-1-4.ec2.redns.redis-cloud.com:12790')
+            r.ping()
+            logger.error("      ✅ Redis: CONEXIÓN OK")
+        except Exception as e:
+            logger.error(f"      ❌ Redis: FALLÓ - {e}")
+
+        # 2. Verificar configuración Celery
+        logger.error("   2. ⚙️ Verificando configuración Celery...")
+        try:
+            config_test = subprocess.run(
+                [sys.executable, "-c", "\"from core.celery_config import app; print('Config loaded')\""],
+                capture_output=True, text=True, timeout=10, shell=True
+            )
+            logger.error(f"      ✅ Configuración: {config_test.stdout.strip()}")
+        except Exception as e:
+            logger.error(f"      ❌ Configuración: FALLÓ - {e}")
+
+        # 3. Verificar procesos finales
+        logger.error("   3. 📊 Estado final de procesos...")
+        try:
+            if sys.platform == "win32":
+                final_procs = subprocess.run(["tasklist", "/fi", "imagename eq python.exe"],
+                                           capture_output=True, text=True)
+            else:
+                final_procs = subprocess.run(["ps", "aux"], capture_output=True, text=True)
+
+            celery_count = len([line for line in final_procs.stdout.split('\n') if 'celery' in line.lower()])
+            logger.error(f"      📋 Procesos Celery activos: {celery_count}")
+        except Exception as e:
+            logger.error(f"      ⚠️ No se pudo contar procesos: {e}")
 
     def stop_workers(self):
         """Detiene workers gracefully"""
