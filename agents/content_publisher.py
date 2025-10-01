@@ -4,9 +4,9 @@ from datetime import datetime, timedelta
 from typing import Dict, Any, Optional
 
 from database.database_service import db_service
-from core.context_logger import ContextLogger
+from core.logging_config import log_execution, get_logger
 
-publisher_context_logger = ContextLogger("publisher")
+logger = get_logger('publisher')
 
 class ContentPublisher:
     """
@@ -14,10 +14,9 @@ class ContentPublisher:
     In a real scenario, this would interact with a CMS, social media API, or database.
     """
     def __init__(self):
-        self.context_logger = publisher_context_logger
-        self.context_logger.logger.info("ContentPublisher initialized.")
+        logger.info("ContentPublisher initialized.")
 
-    @publisher_context_logger.log_execution
+    @log_execution(logger_name='publisher')
     async def publish_content(self, content_data: Dict[str, Any], article_id: Optional[str] = None, publish_immediately: bool = False) -> bool:
         """
         Simulates publishing a piece of content.
@@ -35,22 +34,22 @@ class ContentPublisher:
         source_type = content_data.get('source_type', 'unknown')
 
         if not content_data.get('content'):
-            self.context_logger.logger.warning("Cannot publish: Missing content.", title=title, source_type=source_type)
+            logger.warning(f"Cannot publish: Missing content for title {title}, source type {source_type}")
             return False
 
         success = False
         if publish_immediately:
             publish_time = datetime.now()
-            self.context_logger.logger.info("Publishing immediately", title=title, source_type=source_type, publish_time=publish_time.isoformat())
+            logger.info(f"Publishing immediately: title={title}, source_type={source_type}, publish_time={publish_time.isoformat()}")
             # Simulate API call or database write
             await asyncio.sleep(random.uniform(0.5, 2.0)) # Simulate network delay
-            self.context_logger.logger.info("Successfully simulated immediate publication", title=title, source_type=source_type)
+            logger.info(f"Successfully simulated immediate publication: title={title}, source_type={source_type}")
             success = True
         else:
             # Intelligent scheduling: publish sometime in the next 1-6 hours
             delay_hours = random.uniform(1, 6)
             publish_time = datetime.now() + timedelta(hours=delay_hours)
-            self.context_logger.logger.info("Scheduling for publication", title=title, source_type=source_type, publish_time=publish_time.isoformat(), delay_hours=f"{delay_hours:.2f}")
+            logger.info(f"Scheduling for publication: title={title}, source_type={source_type}, publish_time={publish_time.isoformat()}, delay_hours={delay_hours:.2f}")
             # In a real system, this would enqueue a task for later execution or store in a scheduled queue.
             # For this simulation, we'll just log the schedule.
             success = True
@@ -58,7 +57,7 @@ class ContentPublisher:
         if success and article_id:
             # Actualizar artículo a "published"
             await db_service.update_article_status(article_id, "published")
-            self.context_logger.logger.info("Article status updated to published", article_id=article_id)
+            logger.info(f"Article status updated to published: {article_id}")
 
         return success
 

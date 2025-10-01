@@ -1,16 +1,19 @@
 import asyncio
-import logging
 import random
 import time
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Tuple
 from urllib.parse import urlparse
 import sys
 
 # Import the global db_service instance
 from database.database_service import db_service
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
+# Import logging from core.logging_config
+from core.logging_config import get_logger, log_execution
+logger = get_logger('scraper')
+
+# Import circuit breaker
+from core.circuit_breaker import with_circuit_breaker, CircuitBreakerOpenException
 
 # Optional imports for graceful fallback
 _PLAYWRIGHT_AVAILABLE = False
@@ -26,7 +29,7 @@ try:
     from youtubesearchpython import VideosSearch
     _YOUTUBE_SEARCH_AVAILABLE = True
 except ImportError:
-    logging.warning("youtube-search-python not installed. YouTube scraping via API will be limited. Please install with 'pip install youtube-search-python'")
+    logger.warning("youtube-search-python not installed. YouTube scraping via API will be limited. Please install with 'pip install youtube-search-python'")
 
 class StealthScraper:
     """
@@ -54,6 +57,7 @@ class StealthScraper:
             return
         logger.info("StealthScraper initialized. Call .initialize() before use.")
 
+    @log_execution(logger_name='scraper')
     async def initialize(self):
         """Initializes the Playwright instance and a shared browser."""
         if self._is_initialized:
@@ -66,7 +70,9 @@ class StealthScraper:
         except Exception as e:
             logger.error(f"Failed to initialize Playwright: {e}")
             self._is_initialized = False
+            raise
 
+    @log_execution(logger_name='scraper')
     async def close(self):
         """Closes the Playwright browser and instance."""
         if self._browser:
@@ -78,6 +84,7 @@ class StealthScraper:
         self._is_initialized = False
         logger.info("Playwright browser and instance closed.")
 
+    @log_execution(logger_name='scraper')
     async def _create_stealth_context_and_page(self) -> tuple[BrowserContext, Page]:
         """Creates a new browser context with stealth and a new page."""
         if not self._is_initialized or not self._browser:
@@ -98,6 +105,7 @@ class StealthScraper:
         page = await context.new_page()
         return context, page
 
+    @log_execution(logger_name='scraper')
     async def _human_like_navigation(self, page: Page, url: str, timeout: int = 45000) -> bool:
         """Navigates to a URL with human-like behavior and random timeouts."""
         try:
@@ -120,6 +128,7 @@ class StealthScraper:
             logger.error(f"Navigation to {url} failed: {e}")
             return False
 
+    @log_execution(logger_name='scraper')
     async def _retry_operation(self, func, *args, max_retries: int = 3, **kwargs):
         """Implements an automatic retry system with exponential backoff."""
         for attempt in range(1, max_retries + 1):
@@ -133,6 +142,8 @@ class StealthScraper:
                     logger.error(f"Max retries reached for operation. Last error: {e}")
                     raise
 
+    @with_circuit_breaker(name="youtube_scraper", expected_exception=CircuitBreakerOpenException)
+    @log_execution(logger_name='scraper')
     async def scrape_youtube_metadata(self, query: str, max_results: int = 5) -> List[Dict[str, Any]]:
         """
         Scrapes YouTube video metadata using youtube-search-python (if available)
@@ -231,6 +242,8 @@ class StealthScraper:
             if context:
                 await context.close()
 
+    @with_circuit_breaker(name="news_scraper", expected_exception=CircuitBreakerOpenException)
+    @log_execution(logger_name='scraper')
     async def scrape_news_article(self, url: str) -> Optional[Dict[str, Any]]:
         """
         Scrapes a news article from a given URL, extracting title, content, author, and date.

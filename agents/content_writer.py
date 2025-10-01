@@ -4,16 +4,19 @@ import time
 from typing import List, Optional, Tuple, Dict, Any
 from datetime import datetime
 
-from services.ai_providers import GroqService, CohereService, HuggingFaceService, GeminiService, AIService
+from services.ai_providers import groq, cohere, huggingface, gemini
 from database.database_service import db_service
-from core.context_logger import ContextLogger
+from core.logging_config import log_execution, get_logger
 
-writer_context_logger = ContextLogger("writer")
+logger = get_logger('writer')
 
 class HumanizedWriter:
+    """
+    An agent responsible for generating humanized articles using various AI providers.
+    It selects the best AI based on content type and handles article storage.
+    """
     def __init__(self):
-        self.ai_services: List[AIService] = []
-        self.context_logger = writer_context_logger
+        self.ai_services: List[Any] = []
         self._initialize_ai_services()
         self.block_styles = {
             "introduccion": "periodístico y enganchador con una anécdota personal",
@@ -31,45 +34,43 @@ class HumanizedWriter:
         self.block_word_count = 200
         self.max_regeneration_attempts = 3
         self.max_block_retries = 5 # Max retries for a single block, including prompt variations
-        self.context_logger.logger.info("HumanizedWriter initialized.")
+        logger.info("HumanizedWriter initialized.")
 
-    @writer_context_logger.log_execution
+    @log_execution(logger_name='writer')
     def _initialize_ai_services(self) -> None:
         """Initializes and shuffles available AI services."""
-        services = [
-            GroqService(),
-            CohereService(),
-            HuggingFaceService(),
-            GeminiService()
-        ]
-        self.ai_services = [s for s in services if s.is_available]
+        services = [groq, cohere, huggingface, gemini]
+        self.ai_services = services  # Assume all available as pre-initialized
         if not self.ai_services:
-            self.context_logger.logger.error("No AI services are available. Please check your API keys and installations.")
+            logger.error("No AI services are available. Please check your API keys and installations.")
             raise Exception("No AI services are available. Please check your API keys and installations.")
         random.shuffle(self.ai_services)
-        self.context_logger.logger.info("Initialized AI services", count=len(self.ai_services))
+        logger.info(f"Initialized AI services: {len(self.ai_services)}")
 
-    @writer_context_logger.log_execution
-    def _get_next_ai_service(self) -> Optional[AIService]:
+    @log_execution(logger_name='writer')
+    def _get_next_ai_service(self) -> Optional[Any]:
         """Rotates through available AI services."""
         if not self.ai_services:
-            self.context_logger.logger.warning("No AI services available for rotation.")
+            logger.warning("No AI services available for rotation.")
             return None
         service = self.ai_services[0]
         self.ai_services.append(self.ai_services.pop(0)) # Rotate for next call
+        logger.debug(f"Rotated AI service. Next up: {service.service_name if service else 'None'}")
         return service
 
-    @writer_context_logger.log_execution
+    @log_execution(logger_name='writer')
     def _get_alternative_prompt(self, original_prompt: str, attempt: int) -> str:
         """Generates an alternative prompt for regeneration attempts."""
         if attempt == 1:
-            return f"Reescribe el siguiente contenido con un estilo más conversacional y humano, evitando frases robóticas: {original_prompt}"
+            alt_prompt = f"Reescribe el siguiente contenido con un estilo más conversacional y humano, evitando frases robóticas: {original_prompt}"
         elif attempt == 2:
-            return f"Genera un bloque de contenido muy creativo y original sobre el tema, con un enfoque fresco y personal: {original_prompt}"
+            alt_prompt = f"Genera un bloque de contenido muy creativo y original sobre el tema, con un enfoque fresco y personal: {original_prompt}"
         else:
-            return f"Intenta generar el contenido de nuevo, enfocándote en la fluidez y naturalidad del lenguaje: {original_prompt}"
+            alt_prompt = f"Intenta generar el contenido de nuevo, enfocándote en la fluidez y naturalidad del lenguaje: {original_prompt}"
+        logger.debug(f"Generated alternative prompt for attempt {attempt + 1}.")
+        return alt_prompt
 
-    @writer_context_logger.log_execution
+    @log_execution(logger_name='writer')
     def _generate_block(self, prompt_template: str, topic: str, block_type: str) -> Optional[str]:
         """
         Generates a content block using an AI service, with fallback, style rotation,
@@ -82,19 +83,19 @@ class HumanizedWriter:
             current_prompt = original_formatted_prompt
             if attempt > 0:
                 current_prompt = self._get_alternative_prompt(original_formatted_prompt, attempt)
-                self.context_logger.logger.info("Using alternative prompt for block", block_type=block_type, attempt=attempt + 1)
+                logger.info(f"🔄 ContentWriter: Usando prompt alternativo para el bloque '{block_type}', intento {attempt + 1}.")
 
             service = self._get_next_ai_service()
             if not service:
-                self.context_logger.logger.error("No AI service available to generate block.", block_type=block_type)
+                logger.error(f"❌ ContentWriter: No hay servicio de IA disponible para generar el bloque: '{block_type}'.")
                 continue
 
-            self.context_logger.logger.info("Attempting to generate block", block_type=block_type, service=service.service_name, attempt=attempt + 1)
+            logger.info(f"✍️ ContentWriter: Intentando generar bloque '{block_type}' con el servicio '{service.service_name}', intento {attempt + 1}.")
 
             generated_text = service.generate_text(
                 prompt=current_prompt,
-                max_tokens=int(self.block_word_count * 1.5), # Allow some buffer for token count
-                temperature=0.7 + (attempt * 0.1) # Increase temperature for variety on retries
+                max_tokens=int(self.block_word_count * 1.5),
+                temperature=0.7 + (attempt * 0.1)
             )
 
             # Si es una lista, convertir a string
@@ -103,29 +104,30 @@ class HumanizedWriter:
 
             # Si no es string o está vacío, continuar al siguiente intento
             if not generated_text or not isinstance(generated_text, str):
-                self.context_logger.logger.warning("Service returned invalid type for block. Retrying...", block_type=block_type)
+                logger.warning(f"⚠️ ContentWriter: El servicio retornó un tipo inválido o contenido vacío para el bloque '{block_type}'. Reintentando...")
                 continue
 
             if self._is_robotic(generated_text):
-                self.context_logger.logger.warning("Generated content for block seems robotic. Regenerating with new prompt/service...", block_type=block_type)
+                logger.warning(f"🤖 ContentWriter: El contenido generado para el bloque '{block_type}' parece robótico. Regenerando con nuevo prompt/servicio...")
                 continue
+            logger.info(f"✅ ContentWriter: Bloque '{block_type}' generado exitosamente.")
             return generated_text
 
-        self.context_logger.logger.error("Failed to generate block after multiple attempts", block_type=block_type, attempts=self.max_block_retries)
+        logger.error(f"❌ ContentWriter: Falló la generación del bloque '{block_type}' después de {self.max_block_retries} intentos.")
 
         # Salvamento system: if all attempts fail, generate a generic block
-        self.context_logger.logger.warning("Activating salvamento system for block. Generating generic content.", block_type=block_type)
+        logger.warning(f"🚨 ContentWriter: Activando sistema de salvamento para el bloque '{block_type}'. Generando contenido genérico.")
         salvamento_prompt = f"Genera un bloque de contenido genérico sobre '{topic}' para la sección de {block_type}. Asegúrate de que tenga al menos {self.block_word_count} palabras."
-        for service in self.ai_services: # Try all services for salvamento
+        for service in self.ai_services:
             generic_content = service.generate_text(prompt=salvamento_prompt, max_tokens=int(self.block_word_count * 1.5))
             if generic_content:
-                self.context_logger.logger.info("Salvamento successful for block", block_type=block_type, service=service.service_name)
+                logger.info(f"✅ ContentWriter: Salvamento exitoso para el bloque '{block_type}' con el servicio '{service.service_name}'.")
                 return generic_content
 
-        self.context_logger.logger.error("Salvamento system failed for block. No content could be generated.", block_type=block_type)
+        logger.error(f"❌ ContentWriter: El sistema de salvamento falló para el bloque '{block_type}'. No se pudo generar contenido.")
         return None
 
-    @writer_context_logger.log_execution
+    @log_execution(logger_name='writer')
     def _is_robotic(self, text: str) -> bool:
         """
         Simple heuristic to detect robotic-sounding content.
@@ -169,7 +171,7 @@ class HumanizedWriter:
 
         return False
 
-    @writer_context_logger.log_execution
+    @log_execution(logger_name='writer')
     def _validate_article(self, article: str) -> Tuple[bool, str]:
         """
         Validates the article for length and quality (basic robotic detection).
@@ -180,36 +182,38 @@ class HumanizedWriter:
             return False, f"Article is too short: {word_count} words, expected {self.min_article_length}+."
 
         if self._is_robotic(article):
+            logger.warning("🤖 ContentWriter: Artículo detectado como robótico durante la validación.")
             return False, "Article content seems robotic."
 
+        logger.info("✅ ContentWriter: Artículo validado exitosamente.")
         return True, "Article validated successfully."
 
-    @writer_context_logger.log_execution
+    @log_execution(logger_name='writer')
     def _assemble_article(self, blocks: List[str]) -> str:
         """
         Assembles blocks into a cohesive article with natural transitions.
         """
-        # Simple assembly for now, can be enhanced with AI-driven transitions
+        logger.info("ContentWriter: Ensamblando bloques en un artículo.")
         return "\n\n".join(blocks)
 
-    @writer_context_logger.log_execution
+    @log_execution(logger_name='writer')
     def _generate_slug(self, title: str) -> str:
         """
         Generates a URL-friendly slug from a title.
         """
-        # Convert to lowercase and replace spaces with hyphens
         slug = title.lower().strip()
-        slug = re.sub(r'[^\w\s-]', '', slug)  # Remove special characters
-        slug = re.sub(r'[-\s]+', '-', slug)    # Replace spaces and multiple hyphens with single hyphen
+        slug = re.sub(r'[^\w\s-]', '', slug)
+        slug = re.sub(r'[-\s]+', '-', slug)
+        logger.debug(f"ContentWriter: Slug generado para '{title}': '{slug}'.")
         return slug
 
-    @writer_context_logger.log_execution
+    @log_execution(logger_name='writer')
     async def generate_humanized_article(self, topic: str, source_url: Optional[str] = None, source_type: str = "unknown") -> Optional[str]:
         """
         Generates a humanized article of 800+ words using a block-based approach.
         Returns the article content as a string.
         """
-        self.context_logger.logger.info("Starting humanized article generation", topic=topic)
+        logger.info(f"✍️ ContentWriter: Iniciando generación de artículo humanizado para el tema: '{topic}'.")
         generated_blocks = []
         block_types = ["introduccion", "explicacion", "analisis", "conclusion"]
 
@@ -218,43 +222,32 @@ class HumanizedWriter:
             if block_content:
                 generated_blocks.append(block_content)
             else:
-                self.context_logger.logger.error("Failed to generate content for block type. Aborting article generation.", block_type=block_type)
+                logger.error(f"❌ ContentWriter: Falló la generación de contenido para el tipo de bloque '{block_type}'. Abortando generación de artículo.")
                 return None
 
         assembled_article = self._assemble_article(generated_blocks)
         is_valid, message = self._validate_article(assembled_article)
 
         if not is_valid:
-            self.context_logger.logger.warning("Assembled article failed validation. Attempting full regeneration.", message=message)
-            # For simplicity, a full regeneration is attempted. More advanced would be to regenerate specific blocks.
-            return await self.generate_humanized_article(topic, source_url, source_type) # Recursive call for full regeneration
+            logger.warning(f"⚠️ ContentWriter: El artículo ensamblado falló la validación: {message}. Intentando regeneración completa.")
+            return await self.generate_humanized_article(topic, source_url, source_type)
 
-        self.context_logger.logger.info("Humanized article generated and validated successfully.")
+        logger.info("✅ ContentWriter: Artículo humanizado generado y validado exitosamente.")
 
-        # Guardar artículo en Supabase
+        # Prepare article data to be returned to the orchestrator for saving
         article_data = {
             "title": topic,
             "content": assembled_article,
             "excerpt": assembled_article[:150] + "...",
             "slug": self._generate_slug(topic),
-            "status": "draft",
+            "status": "generated", # Status is 'generated' here, orchestrator will save and update
             "source_type": source_type,
             "source_url": source_url,
             "author": "Sistema Automatizado Tech",
             "word_count": len(assembled_article.split()),
             "reading_time": max(1, len(assembled_article.split()) // 200)
         }
-        saved_article = await db_service.save_article(article_data)
-
-        if saved_article:
-            self.context_logger.logger.info("Article saved to Supabase", article_id=saved_article['id'])
-        else:
-            self.context_logger.logger.error("Failed to save article to Supabase")
-
-        # Note: Metadata (title, author, etc.) is no longer returned directly by this method
-        # as per user's request to make it return a string for testing purposes.
-        # If metadata is needed by the orchestrator, it should be generated/handled separately
-        # or this method's return type would need to be a dict again.
-        return saved_article # Return the saved article object with its ID
+        logger.info(f"ContentWriter: Retornando datos del artículo generado para el orquestador.")
+        return article_data
 
 # Removed example usage and venv check as orchestration will handle execution

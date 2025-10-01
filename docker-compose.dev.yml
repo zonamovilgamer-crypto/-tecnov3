@@ -1,0 +1,96 @@
+version: '3.8'
+
+services:
+  celery-worker:
+    command: celery -A core.celery_config worker --loglevel=debug -P solo -Q scraper_queue,writer_queue,publisher_queue
+    volumes:
+      - .:/app:cached # Mount code for hot reload, cached for performance
+      - logs:/app/logs # Persistent volume for logs
+    environment:
+      - PYTHONUNBUFFERED=1 # Ensure logs are flushed immediately
+      - APP_ENV=development
+    ports:
+      - "9000:9000" # Example debug port, adjust if needed
+    develop:
+      watch:
+        - action: rebuild
+          path: .
+          ignore:
+            - venv/
+            - logs/
+            - .git/
+            - __pycache__/
+            - "*.pyc"
+            - "*.log"
+        - action: sync
+          path: .
+          target: /app
+          ignore:
+            - venv/
+            - logs/
+            - .git/
+            - __pycache__/
+            - "*.pyc"
+            - "*.log"
+
+  celery-beat:
+    command: celery -A core.celery_config beat --loglevel=debug --scheduler django_celery_beat.schedulers.DatabaseScheduler
+    volumes:
+      - .:/app:cached
+      - logs:/app/logs
+    environment:
+      - PYTHONUNBUFFERED=1
+      - APP_ENV=development
+    develop:
+      watch:
+        - action: rebuild
+          path: .
+          ignore:
+            - venv/
+            - logs/
+            - .git/
+            - __pycache__/
+            - "*.pyc"
+            - "*.log"
+        - action: sync
+          path: .
+          target: /app
+          ignore:
+            - venv/
+            - logs/
+            - .git/
+            - __pycache__/
+            - "*.pyc"
+            - "*.log"
+
+  # Optional: FastAPI service for development with hot reload
+  # api:
+  #   command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+  #   volumes:
+  #     - .:/app:cached
+  #   environment:
+  #     - PYTHONUNBUFFERED=1
+  #     - APP_ENV=development
+  #   ports:
+  #     - "8000:8000"
+  #   develop:
+  #     watch:
+  #       - action: rebuild
+  #         path: .
+  #         ignore:
+  #           - venv/
+  #           - logs/
+  #           - .git/
+  #           - __pycache__/
+  #           - "*.pyc"
+  #           - "*.log"
+  #       - action: sync
+  #         path: .
+  #         target: /app
+  #         ignore:
+  #           - venv/
+  #           - logs/
+  #           - .git/
+  #           - __pycache__/
+  #           - "*.pyc"
+  #           - "*.log"

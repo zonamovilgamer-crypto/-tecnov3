@@ -1,0 +1,97 @@
+version: '3.8'
+
+services:
+  redis:
+    image: redis:7-alpine
+    hostname: redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - hive_network
+
+  celery-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    hostname: celery-worker
+    command: celery -A core.celery_config worker --loglevel=info -P solo -Q scraper_queue,writer_queue,publisher_queue
+    volumes:
+      - .:/app
+      - logs:/app/logs # Persistent volume for logs
+    env_file:
+      - .env
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A core.celery_config inspect ping -d celery@%HOSTNAME%"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    restart: on-failure
+    networks:
+      - hive_network
+
+  celery-beat:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    hostname: celery-beat
+    command: celery -A core.celery_config beat --loglevel=info --scheduler django_celery_beat.schedulers.DatabaseScheduler
+    volumes:
+      - .:/app
+      - logs:/app/logs # Persistent volume for logs
+    env_file:
+      - .env
+    depends_on:
+      redis:
+        condition: service_healthy
+      celery-worker:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A core.celery_config inspect stats"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    restart: on-failure
+    networks:
+      - hive_network
+
+  # Optional: FastAPI service if you decide to add a web interface later
+  # api:
+  #   build:
+  #     context: .
+  #     dockerfile: Dockerfile
+  #   hostname: api
+  #   command: uvicorn main:app --host 0.0.0.0 --port 8000
+  #   volumes:
+  #     - .:/app
+  #   env_file:
+  #     - .env
+  #   ports:
+  #     - "8000:8000"
+  #   depends_on:
+  #     redis:
+  #       condition: service_healthy
+  #   healthcheck:
+  #     test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+  #     interval: 30s
+  #     timeout: 10s
+  #     retries: 3
+  #   networks:
+  #     - hive_network
+
+volumes:
+  redis_data:
+  logs:
+
+networks:
+  hive_network:
+    driver: bridge

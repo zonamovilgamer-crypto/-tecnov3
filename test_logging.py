@@ -28,7 +28,7 @@ async def simulate_scraper_task(query: str, user_id: str) -> Dict[str, Any]:
         await asyncio.sleep(0.5) # Simulate I/O
         if "error" in query:
             raise ValueError("Simulated scraping error")
-        scraper_logger.logger.info("Finished YouTube video search.", videos_found=5)
+        scraper_logger.logger.info("Finished YouTube video search.", extra={"videos_found": 5})
         return {"status": "success", "videos": 5}
 
 @writer_logger.log_execution
@@ -40,7 +40,7 @@ def simulate_writer_task(article_topic: str, trace_id: str) -> Dict[str, Any]:
         time.sleep(0.3) # Simulate CPU work
         if "fail" in article_topic:
             raise RuntimeError("Simulated writing failure")
-        writer_logger.logger.info("Article generation complete.", word_count=1200)
+        writer_logger.logger.info("Article generation complete.", extra={"word_count": 1200})
         return {"status": "success", "word_count": 1200}
 
 @publisher_logger.log_execution
@@ -50,7 +50,7 @@ async def simulate_publisher_task(article_id: str, user_id: str) -> bool:
         publisher_logger.logger.info("Attempting to publish article.")
         await asyncio.sleep(0.2) # Simulate network delay
         if "fail" in article_id:
-            publisher_logger.logger.error("Failed to publish article.", reason="network_issue")
+            publisher_logger.logger.error("Failed to publish article.", extra={"reason": "network_issue"})
             return False
         publisher_logger.logger.info("Article published successfully.")
         return True
@@ -65,15 +65,15 @@ async def main_orchestrator_task(main_user_id: str):
     try:
         # Simulate scraper
         scraper_result = await simulate_scraper_task("trending tech", main_user_id)
-        celery_logger.logger.info("Scraper task completed.", result=scraper_result)
+        celery_logger.logger.info("Scraper task completed.", extra={"result": scraper_result})
 
         # Simulate writer
         writer_result = simulate_writer_task("The Future of AI", structlog.contextvars.get_context().get("trace_id"))
-        celery_logger.logger.info("Writer task completed.", result=writer_result)
+        celery_logger.logger.info("Writer task completed.", extra={"result": writer_result})
 
         # Simulate publisher
         publish_success = await simulate_publisher_task("article-123", main_user_id)
-        celery_logger.logger.info("Publisher task completed.", success=publish_success)
+        celery_logger.logger.info("Publisher task completed.", extra={"success": publish_success})
 
         # Simulate an error scenario
         try:
@@ -87,7 +87,7 @@ async def main_orchestrator_task(main_user_id: str):
             celery_logger.logger.warning("Expected error caught during writer simulation.")
 
     except Exception as e:
-        celery_logger.logger.critical("An unhandled error occurred in orchestrator.", error=str(e), exc_info=True)
+        celery_logger.logger.critical("An unhandled error occurred in orchestrator.", extra={"error": str(e)}, exc_info=True)
     finally:
         celery_logger.logger.info("Orchestrator task finished.")
         clear_contextvars() # Clear context at the end of the main task

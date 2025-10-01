@@ -5,6 +5,7 @@ import time
 import signal
 import logging
 import atexit
+import os # Added import for os
 import redis # Added import for redis
 
 # Tus imports existentes
@@ -92,21 +93,23 @@ class CeleryManager:
         # Iniciar Celery worker
         self.worker_process = subprocess.Popen(
             [sys.executable, "-m", "celery", "-A", "core.celery_config",
-             "worker", f"--pool={pool}", "--loglevel=info"]
+             "worker", f"--pool={pool}", "--loglevel=info"],
+            env=os.environ # Pass current environment
         )
         logger.info(f"✅ Celery worker started (PID: {self.worker_process.pid})")
 
         # Iniciar Celery beat
         self.beat_process = subprocess.Popen(
             [sys.executable, "-m", "celery", "-A", "core.celery_config",
-             "beat", "--loglevel=info"]
+             "beat", "--loglevel=debug"],
+            env=os.environ # Pass current environment
         )
         logger.info(f"✅ Celery beat started (PID: {self.beat_process.pid})")
 
         # Verificar
         self._wait_for_workers()
 
-    def _wait_for_workers(self, timeout=30):
+    def _wait_for_workers(self, timeout=90):
         """Verifica que workers estén ACTIVOS antes de continuar"""
         logger.info("⏳ Waiting for workers to be ready...")
         start_time = time.time()
@@ -209,6 +212,8 @@ if __name__ == "__main__":
         logger.error(f"❌ Fatal error: {e}", exc_info=True)
         celery_manager.stop_workers()
         # Also shutdown HiveManager gracefully if it was started
-        import asyncio
-        asyncio.run(hive_manager.shutdown_system())
+        # Ensure hive_manager is defined before attempting to shut it down
+        if 'hive_manager' in locals() and hive_manager:
+            import asyncio
+            asyncio.run(hive_manager.shutdown_system())
         sys.exit(1)
