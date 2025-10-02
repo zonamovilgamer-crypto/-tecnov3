@@ -71,7 +71,7 @@ class HumanizedWriter:
         return alt_prompt
 
     @log_execution(logger_name='writer')
-    def _generate_block(self, prompt_template: str, topic: str, block_type: str) -> Optional[str]:
+    async def _generate_block(self, prompt_template: str, topic: str, block_type: str) -> Optional[str]:
         """
         Generates a content block using an AI service, with fallback, style rotation,
         and prompt variation for resilience.
@@ -92,7 +92,7 @@ class HumanizedWriter:
 
             logger.info(f"✍️ ContentWriter: Intentando generar bloque '{block_type}' con el servicio '{service.service_name}', intento {attempt + 1}.")
 
-            generated_text = service.generate_text(
+            generated_text = await service.generate_text(
                 prompt=current_prompt,
                 max_tokens=int(self.block_word_count * 1.5),
                 temperature=0.7 + (attempt * 0.1)
@@ -248,6 +248,6 @@ class HumanizedWriter:
             "reading_time": max(1, len(assembled_article.split()) // 200)
         }
         logger.info(f"ContentWriter: Retornando datos del artículo generado para el orquestador.")
-        return article_data
+        return assembled_article
 
 # Removed example usage and venv check as orchestration will handle execution

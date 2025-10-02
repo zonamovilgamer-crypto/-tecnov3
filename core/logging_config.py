@@ -1,5 +1,5 @@
 import logging
-import os
+import os # Keep os for os.makedirs and VENV_SITE_PACKAGES
 import sys # Re-added for sys.path workaround
 from logging.handlers import RotatingFileHandler
 from functools import wraps
@@ -14,6 +14,9 @@ if VENV_SITE_PACKAGES not in sys.path:
     sys.path.insert(0, VENV_SITE_PACKAGES)
 
 from pythonjsonlogger.jsonlogger import JsonFormatter
+from config.motor_config import get_motor_config
+
+config = get_motor_config()
 
 class CustomJsonFormatter(JsonFormatter):
     """
@@ -43,11 +46,11 @@ def setup_logging():
     Configures structured JSON logging for the application.
     Logs are rotated and separated by component into the 'logs/' directory.
     """
-    log_level_str = os.getenv('LOG_LEVEL', 'INFO').upper()
+    log_level_str = config.LOG_LEVEL
     log_level = getattr(logging, log_level_str, logging.INFO)
-    log_format = os.getenv('LOG_FORMAT', 'json')
-    log_rotation_size_mb = int(os.getenv('LOG_ROTATION_SIZE_MB', '10'))
-    log_backup_count = int(os.getenv('LOG_BACKUP_COUNT', '5'))
+    log_format = config.LOG_FORMAT
+    log_rotation_size_mb = config.LOG_ROTATION_SIZE_MB
+    log_backup_count = config.LOG_BACKUP_COUNT
 
     log_dir = 'logs'
     os.makedirs(log_dir, exist_ok=True)

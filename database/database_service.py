@@ -1,8 +1,5 @@
-import os
 import logging
-from supabase import create_client, Client
 from typing import Dict, Any, List, Optional
-from dotenv import load_dotenv
 
 # Import logging from core.logging_config
 from core.logging_config import get_logger, log_execution
@@ -11,35 +8,16 @@ logger = get_logger('database')
 # Import circuit breaker
 from core.circuit_breaker import with_circuit_breaker, CircuitBreakerOpenException
 
-# Cargar variables de entorno desde .env
-load_dotenv()
+# Import the global Supabase client from the new provider
+from providers.db_provider import supabase as global_supabase_client
 
 class DatabaseService:
     """
     Servicio para interactuar con Supabase
     """
     def __init__(self):
-        self.supabase_url = os.getenv('SUPABASE_URL')
-        self.supabase_key = os.getenv('SUPABASE_KEY')
-        logger.info(f"Supabase URL loaded: {bool(self.supabase_url)}")
-        logger.info(f"Supabase Key loaded: {bool(self.supabase_key)}")
-        self.client: Optional[Client] = None
-        self._initialize_client()
-
-    @log_execution(logger_name='database')
-    @with_circuit_breaker(name="supabase_connection", expected_exception=CircuitBreakerOpenException)
-    def _initialize_client(self):
-        """Inicializa el cliente de Supabase"""
-        try:
-            if not self.supabase_url or not self.supabase_key:
-                logger.warning("Supabase URL or KEY not found in environment variables")
-                return
-
-            self.client = create_client(self.supabase_url, self.supabase_key)
-            logger.info("✅ Supabase client initialized successfully")
-        except Exception as e:
-            logger.error(f"❌ Failed to initialize Supabase client: {e}")
-            raise # Re-raise to trigger circuit breaker
+        self.client = global_supabase_client
+        logger.info(f"Supabase client loaded from provider: {self.client is not None}")
 
     def is_connected(self) -> bool:
         """Verifica si la conexión a Supabase está activa"""

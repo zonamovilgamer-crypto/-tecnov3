@@ -1,14 +1,15 @@
 import asyncio
 import logging
-import os
+import os # Keep os for subprocess.run
 import time
 import subprocess
 import sys
 from typing import List, Dict, Any, Optional
 
-# Assuming Redis is running locally or configured via environment variables
-# For a real production system, you'd use a more robust Redis client and health check.
-import redis
+# Add the project root to sys.path to allow imports from motor_base
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from providers.cache_provider import redis # Import the global redis client
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -19,25 +20,20 @@ class HiveManager:
     Includes health checks for critical components and graceful shutdown.
     """
     def __init__(self):
-        self.redis_url = os.getenv('REDIS_URL', 'redis://localhost:6379/0')
-        self.redis_client = None
+        self.redis_client = redis # Use the global redis client from the provider
         logger.info("HiveManager initialized.")
 
     def _check_redis_health(self) -> bool:
         """Checks if the Redis server is reachable."""
         try:
             if not self.redis_client:
-                self.redis_client = redis.from_url(self.redis_url)
+                logger.error("Redis client not initialized in HiveManager.")
+                return False
             self.redis_client.ping()
             logger.info("Redis server is healthy.")
             return True
-        except redis.exceptions.ConnectionError as e:
+        except Exception as e: # Catch all exceptions for health check
             logger.error(f"Redis connection error: {e}")
-            self.redis_client = None # Reset client on error
-            return False
-        except Exception as e:
-            logger.error(f"Unexpected error checking Redis health: {e}")
-            self.redis_client = None
             return False
 
     def _check_celery_worker_status(self) -> bool:

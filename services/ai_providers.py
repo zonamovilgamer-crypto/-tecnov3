@@ -1,21 +1,19 @@
 # services/ai_providers.py (VERSIÓN CORREGIDA Y REFACTORIZADA)
-import os
 import asyncio
 import httpx
 import logging
-from dotenv import load_dotenv
-from config.ai_config import AI_PROVIDER_CONFIG # Asumimos que la config está aquí
+from config.motor_config import get_motor_config
 from core.api_rotator import APIRotator
 
-load_dotenv()
+config = get_motor_config()
 
 class AIProvider:
     def __init__(self, name: str):
         self.name = name
-        if name not in AI_PROVIDER_CONFIG:
+        if name not in config.AI_PROVIDER_CONFIG:
             raise ValueError(f"Configuración para el proveedor {name} no encontrada.")
 
-        self.config = AI_PROVIDER_CONFIG[name]
+        self.config = config.AI_PROVIDER_CONFIG[name]
         self.rotator = APIRotator(name, self.config['keys_env'])
         self.client = httpx.AsyncClient(timeout=self.config.get('timeout', 30))
         logging.info(f"{self.name} provider initialized.")

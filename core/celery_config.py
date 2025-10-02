@@ -1,45 +1,43 @@
 from celery import Celery
+import os
+import sys
 
-# ✅ URL CORRECTA de Redis Cloud (ya verificada)
-REDIS_URL = 'redis://default:59UGKSDD5Zh6SyBBpnEZXdu72Z64gd4U@redis-12790.c325.us-east-1-4.ec2.redns.redis-cloud.com:12790'
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from config.motor_config import get_motor_config
+from providers.cache_provider import redis
+
+config = get_motor_config()
 
 app = Celery('orchestrator',
-             broker=REDIS_URL,
-             backend=REDIS_URL,
-             include=['tasks.orchestrator'])
+             broker=config.CELERY_BROKER_URL,
+             backend=config.CELERY_RESULT_BACKEND, # Restaurar el backend original
+             include=config.CELERY_INCLUDE)
 
 app.conf.update(
-    task_serializer='json',
-    result_serializer='json',
-    accept_content=['json'],
-    timezone='UTC',
-    enable_utc=True,
-    task_acks_late=True,
-    worker_prefetch_multiplier=1,
-    task_default_retry_delay=300,
-    task_max_retries=5,
-    broker_connection_retry_on_startup=True,
+    task_serializer=config.CELERY_TASK_SERIALIZER,
+    result_serializer=config.CELERY_RESULT_SERIALIZER,
+    accept_content=config.CELERY_ACCEPT_CONTENT,
+    timezone=config.CELERY_TIMEZONE,
+    enable_utc=config.CELERY_ENABLE_UTC,
+    task_acks_late=config.CELERY_TASK_ACKS_LATE,
+    worker_prefetch_multiplier=config.CELERY_WORKER_PREFETCH_MULTIPLIER,
+    task_default_retry_delay=config.CELERY_TASK_DEFAULT_RETRY_DELAY,
+    task_max_retries=config.CELERY_TASK_MAX_RETRIES,
+    broker_connection_retry_on_startup=config.CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP,
+
+    # Configuración para manejo de resultados y errores
+    task_ignore_result=True,  # Ignorar resultados de tareas por defecto
+    task_store_errors_even_if_ignored=True,  # Almacenar errores incluso si los resultados son ignorados
 
     # Queues para priorización
-    task_queues={
-        'scraper_queue': {'exchange': 'scraper', 'routing_key': 'scraper'},
-        'writer_queue': {'exchange': 'writer', 'routing_key': 'writer'},
-        'publisher_queue': {'exchange': 'publisher', 'routing_key': 'publisher'},
-        'default': {'exchange': 'default', 'routing_key': 'default'},
-    },
-    task_default_queue='default',
-    task_default_exchange='default',
-    task_default_routing_key='default',
+    task_queues=config.CELERY_TASK_QUEUES,
+    task_default_queue=config.CELERY_TASK_DEFAULT_QUEUE,
+    task_default_exchange=config.CELERY_TASK_DEFAULT_EXCHANGE,
+    task_default_routing_key=config.CELERY_TASK_DEFAULT_ROUTING_KEY,
 
     # ✅ CELERY BEAT CONFIGURADO PARA 1 HORA
-    beat_schedule={
-        'run-scraping-pipeline-every-hour': {
-            'task': 'tasks.orchestrator.start_scraping_pipeline',
-            'schedule': 3600.0,  # 1 hora = 3600 segundos
-            'args': (),  # Sin parámetros
-            'options': {'queue': 'default'}
-        },
-    },
+    beat_schedule=config.CELERY_BEAT_SCHEDULE,
 )
 
 if __name__ == '__main__':

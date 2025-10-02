@@ -1,25 +1,29 @@
+import sys
+import os # Keep os for subprocess.Popen and os.environ
+# Add the project root to sys.path to allow imports from motor_base
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
 import socket
 import subprocess
-import sys
 import time
 import signal
 import logging
 import atexit
-import os # Added import for os
-import redis # Added import for redis
 
 # Tus imports existentes
 from core.hive_manager import HiveManager
-# ... otros imports
+from config.motor_config import get_motor_config
+from providers.cache_provider import redis # Import the global redis client
+
+config = get_motor_config()
 
 logger = logging.getLogger(__name__)
 
 def check_redis_connection(host='localhost', port=6379, timeout=1):
     """Verifica si Redis está accesible"""
     try:
-        # Use Redis Cloud URL for connection
-        r = redis.Redis.from_url('redis://default:59UGKSDD5Zh6SyBBpnEZXdu72Z64gd4U@redis-12790.c325.us-east-1-4.ec2.redns.redis-cloud.com:12790')
-        r.ping()
+        # Use the global redis client from the provider
+        redis.ping()
         return True
     except Exception as e:
         logger.debug(f"Redis check failed: {e}")
@@ -75,6 +79,7 @@ def wait_for_redis(max_attempts=10, delay=2):
     logger.error(f"❌ Redis did not become available after {max_attempts} attempts")
     return False
 
+hive_manager = None
 # ======================================
 # 🎯 AGREGAR ESTA CLASE COMPLETA AQUÍ
 # ======================================
@@ -179,12 +184,11 @@ class CeleryManager:
         """Diagnóstico final exhaustivo"""
         logger.error("🩺 DIAGNÓSTICO EXHAUSTIVO INICIADO:")
 
-        # 1. Verificar conexión Redis
+        # 1. Verificando conexión Redis
         logger.error("   1. 🔗 Verificando conexión Redis...")
         try:
-            import redis
-            r = redis.Redis.from_url('redis://default:59UGKSDD5Zh6SyBBpnEZXdu72Z64gd4U@redis-12790.c325.us-east-1-4.ec2.redns.redis-cloud.com:12790')
-            r.ping()
+            # Use the global redis client from the provider
+            redis.ping()
             logger.error("      ✅ Redis: CONEXIÓN OK")
         except Exception as e:
             logger.error(f"      ❌ Redis: FALLÓ - {e}")
@@ -241,7 +245,7 @@ class CeleryManager:
 # ======================================
 
 # Crear instancia global
-celery_manager = CeleryManager()
+celery_manager = CeleryManager() # This line is moved up, so it's removed here.
 
 def cleanup_handler(signum, frame):
     """Maneja shutdown graceful"""

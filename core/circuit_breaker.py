@@ -1,20 +1,22 @@
-import os
 import time
-import redis
 import asyncio # Added for asyncio.iscoroutinefunction
 from functools import wraps
 from typing import Callable, Any, Dict, Optional, List
 from pybreaker import CircuitBreaker as PyCircuitBreaker, CircuitBreakerError, CircuitBreakerState, CircuitBreakerStorage, CircuitBreakerListener
 
 from core.logging_config import get_logger, log_execution
+from config.motor_config import get_motor_config
+from providers.cache_provider import redis # Import the global redis client
 
 logger = get_logger('circuit_breaker')
+
+config = get_motor_config()
 
 class RedisStorage(CircuitBreakerStorage):
     """
     A Redis-based storage for circuit breaker state.
     """
-    def __init__(self, redis_client: redis.Redis, namespace: str = "circuit_breaker"):
+    def __init__(self, redis_client, namespace: str = "circuit_breaker"): # Type hint changed as redis.Redis is not directly imported
         self.redis = redis_client
         self.namespace = namespace
 
@@ -99,24 +101,9 @@ class CircuitBreakerOpenException(Exception):
     """Custom exception raised when a circuit breaker is open."""
     pass
 
-# Initialize Redis client
-REDIS_URL = os.getenv('REDIS_URL', 'redis://localhost:6379/0')
-try:
-    redis_client = redis.from_url(REDIS_URL, decode_responses=True)
-    redis_client.ping()
-    logger.info("Successfully connected to Redis for Circuit Breaker storage.")
-except redis.exceptions.ConnectionError as e:
-    logger.critical(f"Could not connect to Redis for Circuit Breaker storage: {e}. Circuit breakers will not be persistent.", exc_info=True)
-    redis_client = None # Fallback to in-memory if Redis is not available
-
 # Global storage for circuit breakers
-circuit_breaker_storage = RedisStorage(redis_client) if redis_client else None
-
-# Default circuit breaker settings from .env
-CIRCUIT_BREAKER_ENABLED = os.getenv('CIRCUIT_BREAKER_ENABLED', 'true').lower() == 'true'
-CIRCUIT_BREAKER_FAILURE_THRESHOLD = int(os.getenv('CIRCUIT_BREAKER_FAILURE_THRESHOLD', '5'))
-CIRCUIT_BREAKER_TIMEOUT_SECONDS = int(os.getenv('CIRCUIT_BREAKER_TIMEOUT_SECONDS', '60'))
-CIRCUIT_BREAKER_SUCCESS_THRESHOLD = int(os.getenv('CIRCUIT_BREAKER_SUCCESS_THRESHOLD', '3'))
+# Use the redis client from the cache_provider
+circuit_breaker_storage = RedisStorage(redis) if redis else None
 
 def get_circuit_breaker(name: str,
                        failure_threshold: Optional[int] = None,
@@ -126,7 +113,7 @@ def get_circuit_breaker(name: str,
     """
     Returns a configured CircuitBreaker instance, using Redis for persistence if available.
     """
-    if not CIRCUIT_BREAKER_ENABLED:
+    if not config.CIRCUIT_BREAKER_ENABLED:
         logger.info(f"Circuit Breakers are disabled. Returning a dummy breaker for '{name}'.")
         # Return a dummy object that just calls the function without breaking
         class DummyBreaker:
@@ -142,9 +129,9 @@ def get_circuit_breaker(name: str,
         return DummyBreaker()
 
     if failure_threshold is None:
-        failure_threshold = CIRCUIT_BREAKER_FAILURE_THRESHOLD
+        failure_threshold = config.CIRCUIT_BREAKER_FAILURE_THRESHOLD
     if recovery_timeout is None:
-        recovery_timeout = CIRCUIT_BREAKER_TIMEOUT_SECONDS
+        recovery_timeout = config.CIRCUIT_BREAKER_TIMEOUT_SECONDS
 
     if listeners is None:
         listeners = [CircuitBreakerLogger(service_name=name)]
@@ -196,7 +183,7 @@ def with_circuit_breaker(name: str,
 
         @wraps(func)
         async def async_wrapper(*args, **kwargs):
-            if not CIRCUIT_BREAKER_ENABLED:
+            if not config.CIRCUIT_BREAKER_ENABLED:
                 return await func(*args, **kwargs)
 
             try:
@@ -212,7 +199,7 @@ def with_circuit_breaker(name: str,
 
         @wraps(func)
         def sync_wrapper(*args, **kwargs):
-            if not CIRCUIT_BREAKER_ENABLED:
+            if not config.CIRCUIT_BREAKER_ENABLED:
                 return func(*args, **kwargs)
 
             try:

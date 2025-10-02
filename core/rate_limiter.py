@@ -1,23 +1,22 @@
-import os
+import os # Keep os for getenv in _load_limits_from_env
 import time
-import redis
 import asyncio # Added for asyncio.sleep
 from typing import Dict, Optional, Tuple
-from dotenv import load_dotenv
 
 from core.logging_config import get_logger, log_execution
+from config.motor_config import get_motor_config
+from providers.cache_provider import redis # Import the global redis client
 
 logger = get_logger('rate_limiter')
 
-# Load environment variables
-load_dotenv()
+config = get_motor_config()
 
 class RateLimiter:
     """
     Implements a rate limiting mechanism for API providers using Redis for persistence.
     Supports configurable limits per minute, hour, and day, with exponential backoff.
     """
-    def __init__(self, redis_client: redis.Redis, namespace: str = "rate_limiter"):
+    def __init__(self, redis_client, namespace: str = "rate_limiter"): # Type hint changed as redis.Redis is not directly imported
         self.redis = redis_client
         self.namespace = namespace
         self.limits: Dict[str, Dict[str, int]] = {} # {provider: {interval: limit}}
@@ -26,7 +25,8 @@ class RateLimiter:
 
     def _load_limits_from_env(self):
         """Loads rate limits for providers from environment variables."""
-        providers = ['GROQ', 'COHERE', 'HUGGINGFACE', 'GEMINI']
+        # Use AI_PROVIDER_CONFIG from motor_config to get provider names
+        providers = [p.upper() for p in config.AI_PROVIDER_CONFIG.keys()]
         intervals = ['PER_MINUTE', 'PER_HOUR', 'PER_DAY']
 
         for provider in providers:
@@ -108,38 +108,6 @@ class RateLimiter:
                 pipe.execute()
         logger.debug(f"Request recorded for '{provider_name}'.")
 
-# Initialize Redis client for RateLimiter
-try:
-    redis_url = os.getenv('REDIS_URL')
-
-    if redis_url:
-        # Usar Redis Cloud con REDIS_URL (default DB 0)
-        redis_client_rate_limiter = redis.from_url(
-            redis_url,
-            decode_responses=True,
-            socket_connect_timeout=10,
-            retry_on_timeout=True,
-            health_check_interval=30
-        )
-        logger.info("✅ Connected to Redis Cloud using REDIS_URL for Rate Limiter")
-    else:
-        # Fallback a Redis local (para desarrollo, default DB 0)
-        redis_client_rate_limiter = redis.Redis(
-            host=os.getenv('REDIS_HOST', 'localhost'),
-            port=int(os.getenv('REDIS_PORT', 6379)),
-            decode_responses=True
-        )
-        logger.info("✅ Connected to local Redis for Rate Limiter")
-
-    # Test de conexión
-    redis_client_rate_limiter.ping()
-    REDIS_AVAILABLE_RATE_LIMITER = True
-    logger.info("🎯 Redis Cloud connection successful for Rate Limiter persistence")
-
-except Exception as e:
-    REDIS_AVAILABLE_RATE_LIMITER = False
-    logger.warning(f"⚠️ Redis Cloud not available for Rate Limiter: {str(e)[:200]}. Using in-memory fallback.")
-    redis_client_rate_limiter = None
-
 # Global instance of RateLimiter
-rate_limiter = RateLimiter(redis_client_rate_limiter) if redis_client_rate_limiter else None
+# Use the redis client from the cache_provider
+rate_limiter = RateLimiter(redis) if redis else None
