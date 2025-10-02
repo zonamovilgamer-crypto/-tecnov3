@@ -101,8 +101,9 @@ class StealthScraper:
             timezone_id="America/New_York", # Add timezone for fingerprinting evasion
             device_scale_factor=1,
         )
-        await playwright_stealth.stealth(context) # Apply stealth techniques
         page = await context.new_page()
+        stealth = playwright_stealth.Stealth()
+        await stealth.apply_stealth_async(page) # Apply stealth techniques
         return context, page
 
     @log_execution(logger_name='scraper')
